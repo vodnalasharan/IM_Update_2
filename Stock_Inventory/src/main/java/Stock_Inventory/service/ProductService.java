@@ -1,11 +1,14 @@
-// ProductService.java (Service - No Change from last iteration)
+// src/main/java/Stock_Inventory/service/ProductService.java
 package Stock_Inventory.service;
 
+import Stock_Inventory.dto.ProductCreateRequest;
+import Stock_Inventory.dto.ProductUpdateRequest;
+import Stock_Inventory.dto.ProductQuantityUpdateRequest;
 import Stock_Inventory.model.Product;
 import Stock_Inventory.model.Stock;
 import Stock_Inventory.repository.ProductRepository;
 import Stock_Inventory.repository.StockRepository;
-import lombok.extern.slf4j.Slf4j;
+import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,7 +17,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Service
-@Slf4j
+@Transactional
 public class ProductService {
 
     @Autowired
@@ -23,140 +26,89 @@ public class ProductService {
     @Autowired
     private StockRepository stockRepository;
 
-    private static final int DEFAULT_REORDER_LEVEL = 5;
+    public Product createProduct(ProductCreateRequest request) {
+        Product product = new Product();
+        product.setName(request.getName());
+        product.setDescription(request.getDescription());
+        product.setPrice(request.getPrice());
+
+        Product savedProduct = productRepository.save(product);
+
+        Stock stock = new Stock();
+        stock.setProduct(savedProduct);
+        stock.setQuantity(request.getStockLevel());
+        stock.setReorderLevel(5); // Set default reorder level to 5 when product is created
+        stockRepository.save(stock);
+
+        savedProduct.setStockLevel(stock.getQuantity());
+        return savedProduct;
+    }
 
     public List<Product> getAllProducts() {
-        return productRepository.findAll();
+        List<Product> products = productRepository.findAll();
+        products.forEach(product -> stockRepository.findByProduct_ProductId(product.getProductId())
+                .ifPresent(stock -> product.setStockLevel(stock.getQuantity())));
+        return products;
     }
 
     public Optional<Product> getProductById(Long id) {
-        return productRepository.findById(id);
-    }
-
-    @Transactional
-    public Product addOrUpdateProductAndStock(Product product, Integer initialStockLevel, Integer reorderLevel) {
-        Optional<Product> existingProductOptional = productRepository.findByName(product.getName());
-
-        if (existingProductOptional.isPresent()) {
-            Product existingProduct = existingProductOptional.get();
-            Integer newStockLevel = existingProduct.getStockLevel() + (initialStockLevel != null ? initialStockLevel : 0);
-            
-            existingProduct.setStockLevel(newStockLevel);
-            Product savedProduct = productRepository.save(existingProduct);
-
-            Optional<Stock> existingStockEntry = stockRepository.findByProduct(existingProduct);
-            if (existingStockEntry.isPresent()) {
-                Stock stockToUpdate = existingStockEntry.get();
-                stockToUpdate.setQuantity(newStockLevel);
-                if (reorderLevel != null) {
-                    stockToUpdate.setReorderLevel(reorderLevel);
-                }
-                stockRepository.save(stockToUpdate);
-                log.info("Updated stock level for existing product '{}' (ID: {}). New stockLevel: {}, New Stock.quantity: {}",
-                         existingProduct.getName(), existingProduct.getProductId(), existingProduct.getStockLevel(), stockToUpdate.getQuantity());
-            } else {
-                Stock newStock = new Stock(null, savedProduct, newStockLevel, reorderLevel != null ? reorderLevel : DEFAULT_REORDER_LEVEL);
-                stockRepository.save(newStock);
-                log.warn("Existing product '{}' (ID: {}) found without a stock entry. Created new stock entry for it.", existingProduct.getName(), existingProduct.getProductId());
-            }
-
-            return savedProduct;
-        } else {
-            product.setStockLevel(initialStockLevel != null ? initialStockLevel : 0);
-            Product savedProduct = productRepository.save(product);
-
-            Stock newStock = new Stock(null, savedProduct, savedProduct.getStockLevel(), reorderLevel != null ? reorderLevel : DEFAULT_REORDER_LEVEL);
-            stockRepository.save(newStock);
-
-            log.info("Added new product '{}' (ID: {}) with initial stockLevel: {}. Created associated Stock entry with quantity: {}",
-                     savedProduct.getName(), savedProduct.getProductId(), savedProduct.getStockLevel(), newStock.getQuantity());
-            return savedProduct;
-        }
-    }
-
-    @Transactional
-    public Product updateProductDetails(Long id, Product productDetails) {
-        return productRepository.findById(id)
-                .map(existingProduct -> {
-                    existingProduct.setName(productDetails.getName());
-                    existingProduct.setDescription(productDetails.getDescription());
-                    existingProduct.setPrice(productDetails.getPrice());
-
-                    if (productDetails.getStockLevel() != null) {
-                        existingProduct.setStockLevel(productDetails.getStockLevel());
-                        stockRepository.findByProduct(existingProduct).ifPresent(stock -> {
-                            stock.setQuantity(productDetails.getStockLevel());
-                            stockRepository.save(stock);
-                            log.info("Synchronized Stock.quantity for product ID {} during product details update.", id);
-                        });
-                    }
-                    log.info("Updated product details for ID: {}", id);
-                    return productRepository.save(existingProduct);
-                })
-                .orElse(null);
-    }
-
-    @Transactional
-    public Product updateProductAndStockQuantities(Long productId, Integer quantityChange) {
-        Optional<Product> productOptional = productRepository.findById(productId);
-        if (productOptional.isEmpty()) {
-            log.warn("Product with ID {} not found for quantity update.", productId);
-            return null;
-        }
-
-        Product product = productOptional.get();
-        Optional<Stock> stockOptional = stockRepository.findByProduct(product);
-        if (stockOptional.isEmpty()) {
-            log.warn("Stock entry not found for product ID {}. Cannot update quantity.", productId);
-            return null;
-        }
-        Stock stock = stockOptional.get();
-
-        Integer newStockLevel = product.getStockLevel() + quantityChange;
-        if (newStockLevel < 0) {
-            log.warn("Attempted to set negative stock level for product ID {}. Current: {}, Change: {}", productId, product.getStockLevel(), quantityChange);
-            return null;
-        }
-
-        product.setStockLevel(newStockLevel);
-        productRepository.save(product);
-
-        stock.setQuantity(newStockLevel);
-        stockRepository.save(stock);
-
-        log.info("Updated stock level for product ID {}. Product.stockLevel: {}, Stock.quantity: {}",
-                 productId, product.getStockLevel(), stock.getQuantity());
+        Optional<Product> product = productRepository.findById(id);
+        product.ifPresent(p -> stockRepository.findByProduct_ProductId(p.getProductId())
+                .ifPresent(stock -> p.setStockLevel(stock.getQuantity())));
         return product;
     }
 
-    @Transactional
-    public void deleteProduct(Long id) {
-        Optional<Product> productOptional = productRepository.findById(id);
-        if (productOptional.isPresent()) {
-            Product product = productOptional.get();
-            stockRepository.findByProduct(product).ifPresent(stockRepository::delete);
-            productRepository.delete(product);
-            log.info("Deleted product with ID: {} and its associated stock entry.", id);
-        } else {
-            log.warn("Attempted to delete non-existent product with ID: {}", id);
-        }
+    public Product updateProduct(Long id, ProductUpdateRequest request) {
+        return productRepository.findById(id).map(product -> {
+            product.setName(request.getName());
+            product.setDescription(request.getDescription());
+            product.setPrice(request.getPrice());
+
+            Product updatedProduct = productRepository.save(product);
+            stockRepository.findByProduct_ProductId(updatedProduct.getProductId())
+                    .ifPresent(stock -> updatedProduct.setStockLevel(stock.getQuantity()));
+            return updatedProduct;
+        }).orElseThrow(() -> new EntityNotFoundException("Product not found with id " + id));
     }
 
-	public Product updateProductQuantity(Long productId, int i) {
-		// TODO Auto-generated method stub
-		return null;
-	}
+    public Product updateProductQuantity(Long productId, ProductQuantityUpdateRequest request) {
+        return productRepository.findById(productId).map(product -> {
+            Stock stock = stockRepository.findByProduct_ProductId(productId)
+                    .orElseThrow(() -> new EntityNotFoundException("Stock entry not found for product id " + productId));
+
+            int newQuantity = stock.getQuantity() + request.getQuantityChange();
+            if (newQuantity < 0) {
+                throw new IllegalArgumentException("Stock quantity cannot be negative for product: " + product.getName() + ". Attempted change: " + request.getQuantityChange() + ", Current stock: " + stock.getQuantity());
+            }
+            stock.setQuantity(newQuantity);
+            stockRepository.save(stock);
+
+            product.setStockLevel(newQuantity);
+            return product;
+        }).orElseThrow(() -> new EntityNotFoundException("Product not found with id " + productId));
+    }
+
+    public void deleteProduct(Long id) {
+        if (!productRepository.existsById(id)) {
+            throw new EntityNotFoundException("Product not found with id " + id);
+        }
+        stockRepository.findByProduct_ProductId(id).ifPresent(stockRepository::delete);
+        productRepository.deleteById(id);
+    }
 }
 
-// Update -2
-// ProductService.java (Service)
+
+//// src/main/java/Stock_Inventory/service/ProductService.java
 //package Stock_Inventory.service;
 //
+//import Stock_Inventory.dto.ProductCreateRequest;
+//import Stock_Inventory.dto.ProductUpdateRequest;
+//import Stock_Inventory.dto.ProductQuantityUpdateRequest;
 //import Stock_Inventory.model.Product;
 //import Stock_Inventory.model.Stock;
 //import Stock_Inventory.repository.ProductRepository;
 //import Stock_Inventory.repository.StockRepository;
-//import lombok.extern.slf4j.Slf4j;
+//import jakarta.persistence.EntityNotFoundException;
 //import org.springframework.beans.factory.annotation.Autowired;
 //import org.springframework.stereotype.Service;
 //import org.springframework.transaction.annotation.Transactional;
@@ -165,7 +117,7 @@ public class ProductService {
 //import java.util.Optional;
 //
 //@Service
-//@Slf4j
+//@Transactional // Apply @Transactional at the class level for all public methods
 //public class ProductService {
 //
 //    @Autowired
@@ -174,133 +126,148 @@ public class ProductService {
 //    @Autowired
 //    private StockRepository stockRepository;
 //
-//    private static final int DEFAULT_REORDER_LEVEL = 5;
+//    /**
+//     * Creates a new product and automatically initializes its stock entry.
+//     *
+//     * @param request The DTO containing product details and initial stock level.
+//     * @return The newly created Product, with its transient stockLevel set for response.
+//     */
+//    public Product createProduct(ProductCreateRequest request) {
+//        Product product = new Product();
+//        product.setName(request.getName());
+//        product.setDescription(request.getDescription());
+//        product.setPrice(request.getPrice());
 //
+//        // Save Product first to get the generated productId
+//        Product savedProduct = productRepository.save(product);
+//
+//        // Automatically create and save the initial Stock entry for this new product
+//        Stock stock = new Stock();
+//        stock.setProduct(savedProduct); // Link the stock to the newly saved product
+//        stock.setQuantity(request.getStockLevel()); // Set initial quantity from request
+//        stock.setReorderLevel(0); // Default reorder level to 0, can be updated later via StockController
+//        stockRepository.save(stock);
+//
+//        // Set the transient stockLevel on the returned Product object for immediate client feedback
+//        savedProduct.setStockLevel(stock.getQuantity());
+//        return savedProduct;
+//    }
+//
+//    /**
+//     * Retrieves all products, populating their transient stockLevel from the Stock entity.
+//     *
+//     * @return A list of all products.
+//     */
 //    public List<Product> getAllProducts() {
-//        return productRepository.findAll();
+//        List<Product> products = productRepository.findAll();
+//        // For each product, fetch its stock and set the transient stockLevel
+//        products.forEach(product -> stockRepository.findByProduct_ProductId(product.getProductId())
+//                .ifPresent(stock -> product.setStockLevel(stock.getQuantity())));
+//        return products;
 //    }
 //
+//    /**
+//     * Retrieves a single product by its ID, populating its transient stockLevel.
+//     *
+//     * @param id The ID of the product to retrieve.
+//     * @return An Optional containing the Product if found, empty otherwise.
+//     */
 //    public Optional<Product> getProductById(Long id) {
-//        return productRepository.findById(id);
+//        Optional<Product> product = productRepository.findById(id);
+//        // If product is found, fetch its stock and set the transient stockLevel
+//        product.ifPresent(p -> stockRepository.findByProduct_ProductId(p.getProductId())
+//                .ifPresent(stock -> p.setStockLevel(stock.getQuantity())));
+//        return product;
 //    }
 //
-//    @Transactional
-//    public Product addOrUpdateProductAndStock(Product product, Integer initialQuantity, Integer reorderLevel) {
-//        Optional<Product> existingProductOptional = productRepository.findByName(product.getName());
+//    /**
+//     * Updates an existing product's details (name, description, price).
+//     * Stock level and reorder level are managed via separate Stock endpoints.
+//     *
+//     * @param id The ID of the product to update.
+//     * @param request The DTO containing updated product details.
+//     * @return The updated Product entity.
+//     * @throws EntityNotFoundException if the product is not found.
+//     */
+//    public Product updateProduct(Long id, ProductUpdateRequest request) {
+//        return productRepository.findById(id).map(product -> {
+//            product.setName(request.getName());
+//            product.setDescription(request.getDescription());
+//            product.setPrice(request.getPrice());
 //
-//        if (existingProductOptional.isPresent()) {
-//            // Product already exists, update its stock quantity, do NOT create a new product
-//            Product existingProduct = existingProductOptional.get();
-//            Optional<Stock> existingStockOptional = stockRepository.findByProductId(existingProduct.getProductId());
+//            Product updatedProduct = productRepository.save(product);
+//            // Ensure transient stockLevel is updated for the response object
+//            stockRepository.findByProduct_ProductId(updatedProduct.getProductId())
+//                    .ifPresent(stock -> updatedProduct.setStockLevel(stock.getQuantity()));
+//            return updatedProduct;
+//        }).orElseThrow(() -> new EntityNotFoundException("Product not found with id " + id));
+//    }
 //
-//            if (existingStockOptional.isPresent()) {
-//                Stock existingStock = existingStockOptional.get();
-//                // Add to existing quantity for duplicate product name
-//                existingStock.setQuantity(existingStock.getQuantity() + (initialQuantity != null ? initialQuantity : 0));
-//                stockRepository.save(existingStock);
-//                log.info("Updated quantity for existing product '{}' (ID: {}). New quantity: {}", existingProduct.getName(), existingProduct.getProductId(), existingStock.getQuantity());
-//            } else {
-//                // Edge case: product exists but has no stock. Create new stock for it.
-//                Stock newStock = new Stock();
-//                newStock.setProductId(existingProduct.getProductId());
-//                newStock.setQuantity(initialQuantity != null ? initialQuantity : 0);
-//                newStock.setReorderLevel(reorderLevel != null ? reorderLevel : DEFAULT_REORDER_LEVEL);
-//                stockRepository.save(newStock);
-//                log.warn("Existing product '{}' (ID: {}) found without stock. Created new stock for it.", existingProduct.getName(), existingProduct.getProductId());
+//    /**
+//     * Updates the quantity (stock level) of a product. This is a PATCH operation
+//     * for quantity changes (e.g., sales, receipts).
+//     *
+//     * @param productId The ID of the product whose quantity is to be updated.
+//     * @param request The DTO containing the quantity change (+/-).
+//     * @return The updated Product entity with its new transient stockLevel.
+//     * @throws IllegalArgumentException if the resulting stock quantity would be negative.
+//     * @throws EntityNotFoundException if the product or its stock entry is not found.
+//     */
+//    public Product updateProductQuantity(Long productId, ProductQuantityUpdateRequest request) {
+//        return productRepository.findById(productId).map(product -> {
+//            Stock stock = stockRepository.findByProduct_ProductId(productId)
+//                    .orElseThrow(() -> new EntityNotFoundException("Stock entry not found for product id " + productId));
+//
+//            int newQuantity = stock.getQuantity() + request.getQuantityChange();
+//            if (newQuantity < 0) {
+//                throw new IllegalArgumentException("Stock quantity cannot be negative for product: " + product.getName() + ". Attempted change: " + request.getQuantityChange() + ", Current stock: " + stock.getQuantity());
 //            }
-//            return existingProduct; // Return the existing product
-//        } else {
-//            // Product does not exist, create a new product and its associated stock
-//            Product savedProduct = productRepository.save(product); // Save product first to get its ID
+//            stock.setQuantity(newQuantity);
+//            stockRepository.save(stock);
 //
-//            Stock newStock = new Stock();
-//            newStock.setProductId(savedProduct.getProductId()); // Link stock to the newly saved product
-//            newStock.setQuantity(initialQuantity != null ? initialQuantity : 0);
-//            newStock.setReorderLevel(reorderLevel != null ? reorderLevel : DEFAULT_REORDER_LEVEL);
-//            stockRepository.save(newStock); // Save the new stock
-//
-//            log.info("Added new product '{}' (ID: {}) with initial quantity: {}", savedProduct.getName(), savedProduct.getProductId(), newStock.getQuantity());
-//            return savedProduct;
-//        }
+//            // Update the transient stockLevel of the product for the response
+//            product.setStockLevel(newQuantity);
+//            return product;
+//        }).orElseThrow(() -> new EntityNotFoundException("Product not found with id " + productId));
 //    }
 //
-//    @Transactional
-//    public Product updateProduct(Long id, Product product) {
-//        return productRepository.findById(id)
-//                .map(existingProduct -> {
-//                    // Update only product details (name, description, price)
-//                    existingProduct.setName(product.getName());
-//                    existingProduct.setDescription(product.getDescription());
-//                    existingProduct.setPrice(product.getPrice());
-//                    log.info("Updated product details for ID: {}", id);
-//                    return productRepository.save(existingProduct);
-//                })
-//                .orElse(null); // Product not found
-//    }
-//
-//    // This method handles quantity changes from various sources (orders, supplier receipts, manual adjustments)
-//    @Transactional
-//    public Product updateProductQuantity(Long productId, Integer quantityChange) {
-//        Optional<Product> productOptional = productRepository.findById(productId);
-//        if (productOptional.isPresent()) {
-//            Product product = productOptional.get();
-//            Optional<Stock> stockOptional = stockRepository.findByProductId(productId);
-//
-//            if (stockOptional.isPresent()) {
-//                Stock stock = stockOptional.get();
-//                // Check if decrement would result in negative stock
-//                if (stock.getQuantity() + quantityChange < 0) {
-//                    log.warn("Attempted to set negative quantity for product ID {}. Current: {}, Change: {}", productId, stock.getQuantity(), quantityChange);
-//                    // Instead of null, you might throw a custom exception like InsufficientStockException
-//                    return null;
-//                }
-//                stock.setQuantity(stock.getQuantity() + quantityChange); // Apply the change
-//                stockRepository.save(stock);
-//                log.info("Updated quantity for product ID {}. New quantity: {}", productId, stock.getQuantity());
-//                return product; // Return the product whose stock was updated
-//            } else {
-//                log.warn("Product ID {} found without stock. Cannot update quantity.", productId);
-//                return null; // Or throw a custom exception if stock is expected
-//            }
-//        }
-//        return null; // Product not found
-//    }
-//
-//    @Transactional
+//    /**
+//     * Deletes a product by its ID. Also deletes the associated stock entry.
+//     *
+//     * @param id The ID of the product to delete.
+//     * @throws EntityNotFoundException if the product is not found.
+//     */
 //    public void deleteProduct(Long id) {
-//        // Find product to get its ID to delete associated stock
-//        Optional<Product> productOptional = productRepository.findById(id);
-//        if (productOptional.isPresent()) {
-//            Product product = productOptional.get();
-//            // Delete associated stock first
-//            stockRepository.findByProductId(product.getProductId()).ifPresent(stockRepository::delete);
-//            // Then delete the product
-//            productRepository.deleteById(id);
-//            log.info("Deleted product with ID: {} and its associated stock.", id);
-//        } else {
-//            log.warn("Attempted to delete non-existent product with ID: {}", id);
+//        if (!productRepository.existsById(id)) {
+//            throw new EntityNotFoundException("Product not found with id " + id);
 //        }
+//        // First, delete the associated stock entry to maintain referential integrity
+//        stockRepository.findByProduct_ProductId(id).ifPresent(stockRepository::delete);
+//        // Then, delete the product itself
+//        productRepository.deleteById(id);
 //    }
 //}
 
 
 
+//// src/main/java/Stock_Inventory/service/ProductService.java
 //package Stock_Inventory.service;
 //
+//import Stock_Inventory.dto.ProductCreateRequest;
+//import Stock_Inventory.dto.ProductUpdateRequest;
+//import Stock_Inventory.dto.ProductQuantityUpdateRequest;
 //import Stock_Inventory.model.Product;
 //import Stock_Inventory.model.Stock;
 //import Stock_Inventory.repository.ProductRepository;
 //import Stock_Inventory.repository.StockRepository;
-//import lombok.extern.slf4j.Slf4j;
+//import jakarta.transaction.Transactional;
 //import org.springframework.beans.factory.annotation.Autowired;
 //import org.springframework.stereotype.Service;
-//import org.springframework.transaction.annotation.Transactional;
 //
 //import java.util.List;
 //import java.util.Optional;
 //
 //@Service
-//@Slf4j
 //public class ProductService {
 //
 //    @Autowired
@@ -309,132 +276,76 @@ public class ProductService {
 //    @Autowired
 //    private StockRepository stockRepository;
 //
+//    @Transactional
+//    public Product createProduct(ProductCreateRequest request) {
+//        Product product = new Product();
+//        product.setName(request.getName());
+//        product.setDescription(request.getDescription());
+//        product.setPrice(request.getPrice());
+//
+//        Product savedProduct = productRepository.save(product);
+//
+//        // Initialize stock for the new product
+//        Stock stock = new Stock();
+//        stock.setProduct(savedProduct);
+//        stock.setQuantity(0); // New products start with 0 stock
+//        stock.setReorderLevel(0); // Default reorder level
+//        stockRepository.save(stock);
+//
+//        savedProduct.setStockLevel(stock.getQuantity()); // Set initial stock level in product DTO
+//        return savedProduct;
+//    }
+//
 //    public List<Product> getAllProducts() {
-//        return productRepository.findAll();
+//        List<Product> products = productRepository.findAll();
+//        products.forEach(product -> stockRepository.findByProduct_ProductId(product.getProductId())
+//                .ifPresent(stock -> product.setStockLevel(stock.getQuantity())));
+//        return products;
 //    }
+//
 //    public Optional<Product> getProductById(Long id) {
-//        return productRepository.findById(id);
+//        Optional<Product> product = productRepository.findById(id);
+//        product.ifPresent(p -> stockRepository.findByProduct_ProductId(p.getProductId())
+//                .ifPresent(stock -> p.setStockLevel(stock.getQuantity())));
+//        return product;
 //    }
 //
 //    @Transactional
-//    public Product addOrUpdateProductAndStock(Product product, Integer quantity, Integer reorderLevel) {
-//        Optional<Product> existingProductOptional = productRepository.findByName(product.getName());
+//    public Product updateProduct(Long id, ProductUpdateRequest request) {
+//        return productRepository.findById(id).map(product -> {
+//            product.setName(request.getName());
+//            product.setDescription(request.getDescription());
+//            product.setPrice(request.getPrice());
 //
-//        if (existingProductOptional.isPresent()) {
-//            // Product already exists, update its quantity
-//            Product existingProduct = existingProductOptional.get();
-//            Stock existingStock = existingProduct.getStock();
-//
-//            if (existingStock != null) {
-//                // Update quantity if stock exists
-//                existingStock.setQuantity(existingStock.getQuantity() + quantity); // Add to existing quantity
-//                stockRepository.save(existingStock); // Save the updated stock explicitly
-//                log.info("Updated quantity for existing product '{}'. New quantity: {}", existingProduct.getName(), existingStock.getQuantity());
-//                // No need to call productRepository.save(existingProduct) here, as stock is cascaded and saved.
-//                // The transaction will commit the changes to existingStock.
-//            } else {
-//                // This scenario means an existing product was found without an associated stock.
-//                // This is less ideal, but we handle it by creating a new Stock and linking it.
-//                Stock newStock = new Stock();
-//                newStock.setProduct(existingProduct); // Link the new stock to the existing product
-//                newStock.setQuantity(quantity != null ? quantity : 0);
-//                newStock.setReorderLevel(reorderLevel != null ? reorderLevel : 5);
-//                existingProduct.setStock(newStock); // Set the new stock on the existing product
-//                // No need to call stockRepository.save(newStock) explicitly here because cascade will handle it
-//                // when productRepository.save(existingProduct) is called below.
-//                log.warn("Existing product '{}' found without stock. Created new stock for it.", existingProduct.getName());
-//            }
-//            // Always save the existing product to ensure all changes (including cascaded stock updates/creations) are persisted.
-//            return productRepository.save(existingProduct); // Save the updated product (and its potentially new/updated stock)
-//
-//        } else {
-//            // Product does not exist, create a new product and stock
-//            if (product.getStock() == null) {
-//                // If stock object is not provided in the incoming product, create a new one
-//                Stock stock = new Stock();
-//                stock.setProduct(product);
-//                stock.setQuantity(quantity != null ? quantity : 0);
-//                stock.setReorderLevel(reorderLevel != null ? reorderLevel : 5);
-//                product.setStock(stock);
-//            } else {
-//                // If stock is already provided in the product object from the request
-//                product.getStock().setProduct(product); // Ensure the bidirectional link is set
-//
-//                // Set quantity and reorderLevel if they were null in the incoming stock object
-//                if (product.getStock().getQuantity() == null) {
-//                    product.getStock().setQuantity(quantity != null ? quantity : 0);
-//                }
-//                if (product.getStock().getReorderLevel() == null) {
-//                    product.getStock().setReorderLevel(reorderLevel != null ? reorderLevel : 5);
-//                }
-//
-//                // IMPORTANT: For new product, ensure the incoming stock ID is null to prevent 'detached entity' error
-//                if (product.getStock().getId() != null && product.getStock().getId() > 0) {
-//                     log.warn("Received stock with ID for new product. Setting stock ID to null for persistence.");
-//                     product.getStock().setId(null); // Explicitly nullify the ID for new creation
-//                }
-//            }
-//            log.info("Adding new product '{}' with initial quantity: {}", product.getName(), product.getStock().getQuantity());
-//            return productRepository.save(product); // This will cascade persist the new Product and its associated Stock
-//        }
+//            Product updatedProduct = productRepository.save(product);
+//            stockRepository.findByProduct_ProductId(updatedProduct.getProductId())
+//                    .ifPresent(stock -> updatedProduct.setStockLevel(stock.getQuantity()));
+//            return updatedProduct;
+//        }).orElseThrow(() -> new RuntimeException("Product not found with id " + id));
 //    }
 //
 //    @Transactional
-//    public Product updateProduct(Long id, Product product) {
-//        return productRepository.findById(id)
-//                .map(existingProduct -> {
-//                    existingProduct.setName(product.getName());
-//                    existingProduct.setDescription(product.getDescription());
-//                    existingProduct.setPrice(product.getPrice());
+//    public Product updateProductQuantity(Long productId, ProductQuantityUpdateRequest request) {
+//        return productRepository.findById(productId).map(product -> {
+//            Stock stock = stockRepository.findByProduct_ProductId(productId)
+//                    .orElseThrow(() -> new RuntimeException("Stock entry not found for product id " + productId));
 //
-//                    // Update stock details if provided in the product object
-//                    if (product.getStock() != null) {
-//                        Stock existingStock = existingProduct.getStock();
-//                        if (existingStock != null) {
-//                            if (product.getStock().getQuantity() != null) {
-//                                existingStock.setQuantity(product.getStock().getQuantity());
-//                            }
-//                            if (product.getStock().getReorderLevel() != null) {
-//                                existingStock.setReorderLevel(product.getStock().getReorderLevel());
-//                            }
-//                            stockRepository.save(existingStock); // Save the updated stock
-//                        } else {
-//                            // If product had no stock previously, create a new one
-//                            Stock newStock = new Stock();
-//                            newStock.setProduct(existingProduct);
-//                            newStock.setQuantity(product.getStock().getQuantity() != null ? product.getStock().getQuantity() : 0);
-//                            newStock.setReorderLevel(product.getStock().getReorderLevel() != null ? product.getStock().getReorderLevel() : 5);
-//                            existingProduct.setStock(newStock);
-//                            stockRepository.save(newStock);
-//                        }
-//                    }
-//
-//                    return productRepository.save(existingProduct);
-//                })
-//                .orElse(null);
-//    }
-//
-//    // New method to update only the quantity of an existing product
-//    @Transactional
-//    public Product updateProductQuantity(Long productId, Integer quantityToAdd) {
-//        Optional<Product> productOptional = productRepository.findById(productId);
-//        if (productOptional.isPresent()) {
-//            Product product = productOptional.get();
-//            Stock stock = product.getStock();
-//            if (stock != null) {
-//                stock.setQuantity(stock.getQuantity() + quantityToAdd);
-//                stockRepository.save(stock);
-//                log.info("Updated quantity for product ID {}. New quantity: {}", productId, stock.getQuantity());
-//                return product;
-//            } else {
-//                log.warn("Product ID {} found without stock. Cannot update quantity.", productId);
-//                return null; // Or throw an exception
+//            int newQuantity = stock.getQuantity() + request.getQuantityChange();
+//            if (newQuantity < 0) {
+//                throw new IllegalArgumentException("Stock quantity cannot be negative for product " + product.getName());
 //            }
-//        }
-//        return null; // Product not found
+//            stock.setQuantity(newQuantity);
+//            stockRepository.save(stock);
+//
+//            product.setStockLevel(newQuantity);
+//            return product; // Return product with updated stock level
+//        }).orElseThrow(() -> new RuntimeException("Product not found with id " + productId));
 //    }
 //
+//    @Transactional
 //    public void deleteProduct(Long id) {
+//        // Before deleting a product, delete its associated stock entry
+//        stockRepository.findByProduct_ProductId(id).ifPresent(stockRepository::delete);
 //        productRepository.deleteById(id);
 //    }
 //}

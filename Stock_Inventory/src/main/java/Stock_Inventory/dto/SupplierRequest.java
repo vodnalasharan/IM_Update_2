@@ -1,6 +1,7 @@
-// SupplierRequest.java (DTO - No Change)
+// src/main/java/Stock_Inventory/dto/SupplierRequest.java
 package Stock_Inventory.dto;
 
+import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -11,26 +12,10 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 public class SupplierRequest {
+    @NotBlank(message = "Supplier name cannot be blank")
     private String name;
-    private String contactInfo;
-    private String productsSupplied;
+
+    private String contactInfo; // Can be blank
+
+    private String productsSupplied; // Can be blank, text field
 }
-
-
-//// SupplierRequest.java (DTO)
-//package Stock_Inventory.dto;
-//
-//import lombok.AllArgsConstructor;
-//import lombok.Getter;
-//import lombok.NoArgsConstructor;
-//import lombok.Setter;
-//
-//@Getter
-//@Setter
-//@NoArgsConstructor
-//@AllArgsConstructor
-//public class SupplierRequest {
-//    private String name;
-//    private String contactInfo;
-//    private String productsSupplied; // As a string/TEXT field
-//}

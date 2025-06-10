@@ -1,76 +1,76 @@
-// Product.java (Model - No Change from last iteration)
+// src/main/java/Stock_Inventory/model/Product.java
 package Stock_Inventory.model;
 
 import jakarta.persistence.*;
-import lombok.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Entity
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
 @Table(name = "product")
+@Data // Includes @Getter, @Setter, @RequiredArgsConstructor, @ToString, @EqualsAndHashCode
+@NoArgsConstructor // Adds a no-argument constructor
+@AllArgsConstructor // Adds a constructor with all fields
 public class Product {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long productId;
 
-    @Column(nullable = false, unique = true)
+    @NotBlank(message = "Product name is required")
     private String name;
+
+    @Column(columnDefinition = "TEXT")
     private String description;
+
+    @NotNull(message = "Price is required")
+    @Positive(message = "Price must be positive")
     private Double price;
 
-    @Column(nullable = false)
+    // This field is for convenience in DTOs/responses and is not a persistent column in the DB.
+    // The actual stock quantity is stored in the Stock entity.
+    @Transient
     private Integer stockLevel;
 }
 
 
-// Update -2
-//package Stock_Inventory.model;
-//
-//import jakarta.persistence.*;
-//import lombok.*;
-//
-//@Entity
-//@Getter
-//@Setter
-//@NoArgsConstructor
-//@AllArgsConstructor
-//@Table(name = "product")
-//public class Product {
-//    @Id
-//    @GeneratedValue(strategy = GenerationType.IDENTITY)
-//    private Long productId;
-//
-//    @Column(nullable = false, unique = true) // Ensures product names are unique
-//    private String name;
-//    private String description;
-//    private Double price;
-//}
 
-// Method for Product and Stock only(Update 1)
+//// src/main/java/Stock_Inventory/model/Product.java
 //package Stock_Inventory.model;
 //
 //import jakarta.persistence.*;
-//import com.fasterxml.jackson.annotation.JsonManagedReference;
-//import lombok.*;
+//import lombok.AllArgsConstructor;
+//import lombok.Getter;
+//import lombok.NoArgsConstructor;
+//import lombok.Setter;
+//import com.fasterxml.jackson.annotation.JsonIdentityInfo;
+//import com.fasterxml.jackson.annotation.ObjectIdGenerators;
 //
 //@Entity
+//@Table(name = "product")
 //@Getter
 //@Setter
 //@NoArgsConstructor
 //@AllArgsConstructor
-//@Table(name = "product")
+//@JsonIdentityInfo(generator = ObjectIdGenerators.PropertyGenerator.class, property = "productId")
 //public class Product {
+//
 //    @Id
 //    @GeneratedValue(strategy = GenerationType.IDENTITY)
 //    private Long productId;
 //
+//    @Column(nullable = false)
 //    private String name;
+//
+//    @Column(columnDefinition = "TEXT")
 //    private String description;
+//
+//    @Column(nullable = false)
 //    private Double price;
-//    
-//    @OneToOne(mappedBy = "product", cascade = CascadeType.ALL)
-//    @JsonManagedReference
-//    private Stock stock;
+//
+//    @Transient // Stock level is managed by the Stock entity but displayed with Product
+//    private Integer stockLevel;
 //}

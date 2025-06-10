@@ -1,32 +1,37 @@
-// OrderService.java (Service - No Change from last iteration)
 package Stock_Inventory.service;
 
+import Stock_Inventory.dto.OrderCreateRequest;
+import Stock_Inventory.dto.OrderResponseDTO;
+import Stock_Inventory.model.Customer;
 import Stock_Inventory.model.Order;
 import Stock_Inventory.model.OrderItem;
 import Stock_Inventory.model.Product;
 import Stock_Inventory.model.Stock;
-import Stock_Inventory.repository.OrderItemRepository;
+import Stock_Inventory.model.OrderStatus; // <--- IMPORTANT: Reverted to top-level import
+import Stock_Inventory.repository.CustomerRepository;
 import Stock_Inventory.repository.OrderRepository;
 import Stock_Inventory.repository.ProductRepository;
 import Stock_Inventory.repository.StockRepository;
-import lombok.extern.slf4j.Slf4j;
+import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
-@Slf4j
+@Transactional
 public class OrderService {
 
     @Autowired
     private OrderRepository orderRepository;
 
     @Autowired
-    private OrderItemRepository orderItemRepository;
+    private CustomerRepository customerRepository;
 
     @Autowired
     private ProductRepository productRepository;
@@ -34,142 +39,129 @@ public class OrderService {
     @Autowired
     private StockRepository stockRepository;
 
-    public List<Order> getAllOrders() {
-        List<Order> orders = orderRepository.findAll();
-        orders.forEach(this::calculateOrderTotal);
-        return orders;
-    }
+    private OrderResponseDTO convertToDto(Order order) {
+        OrderResponseDTO dto = new OrderResponseDTO();
+        dto.setOrderId(order.getOrderId());
+        dto.setOrderDate(order.getOrderDate());
+        dto.setStatus(order.getStatus());
+        dto.setTotalAmount(order.calculateTotalAmount());
 
-    public Optional<Order> getOrderById(Long id) {
-        Optional<Order> order = orderRepository.findById(id);
-        order.ifPresent(this::calculateOrderTotal);
-        return order;
-    }
+        if (order.getCustomer() != null) {
+            dto.setCustomerId(order.getCustomer().getCustomerId());
+        }
 
-    private void calculateOrderTotal(Order order) {
-        double total = 0.0;
         if (order.getOrderItems() != null) {
-            for (OrderItem item : order.getOrderItems()) {
-                total += item.getPriceAtOrder() * item.getQuantity();
-            }
+            List<OrderResponseDTO.OrderItemResponseDTO> itemDtos = order.getOrderItems().stream()
+                    .map(item -> {
+                        OrderResponseDTO.OrderItemResponseDTO itemDto = new OrderResponseDTO.OrderItemResponseDTO();
+                        itemDto.setId(item.getOrderItemId());
+                        itemDto.setQuantity(item.getQuantity());
+                        itemDto.setPriceAtOrder(item.getPriceAtOrder());
+                        if (item.getProduct() != null) {
+                            itemDto.setProductId(item.getProduct().getProductId());
+                        }
+                        return itemDto;
+                    })
+                    .collect(Collectors.toList());
+            dto.setOrderItems(itemDtos);
         }
-        order.setTotalAmount(total);
+        return dto;
     }
 
-    @Transactional
-    public Order createOrder(Order order) {
-        order.setOrderDate(LocalDateTime.now());
-        order.setStatus(Order.OrderStatus.PENDING);
+    public OrderResponseDTO createOrder(OrderCreateRequest request) {
+        Customer customer = customerRepository.findById(request.getCustomerId())
+                .orElseThrow(() -> new EntityNotFoundException("Customer not found with id: " + request.getCustomerId()));
 
-        if (order.getOrderItems() == null || order.getOrderItems().isEmpty()) {
-            log.warn("Attempted to create an order with no items.");
-            return null;
-        }
+        Order order = new Order();
+        order.setCustomer(customer);
+        // Default status and date are handled by @PrePersist in Order.java
 
-        for (OrderItem item : order.getOrderItems()) {
-            Optional<Product> productOptional = productRepository.findById(item.getProductId());
-            if (productOptional.isEmpty()) {
-                log.error("Product with ID {} not found for order item.", item.getProductId());
-                throw new IllegalArgumentException("Product not found: " + item.getProductId());
-            }
-            Product product = productOptional.get();
+        List<OrderItem> orderItems = new ArrayList<>();
 
-            Optional<Stock> stockOptional = stockRepository.findByProduct(product);
-            if (stockOptional.isEmpty()) {
-                log.error("Stock entry not found for product ID {}. Cannot process order.", item.getProductId());
-                throw new IllegalStateException("Stock details missing for product: " + product.getName());
-            }
-            Stock stock = stockOptional.get();
+        for (OrderCreateRequest.OrderItemRequest itemRequest : request.getOrderItems()) {
+            Product product = productRepository.findById(itemRequest.getProductId())
+                    .orElseThrow(() -> new EntityNotFoundException("Product not found with id: " + itemRequest.getProductId()));
 
-            item.setPriceAtOrder(product.getPrice());
+            Stock stock = stockRepository.findByProduct_ProductId(itemRequest.getProductId())
+                    .orElseThrow(() -> new EntityNotFoundException("Stock entry not found for product ID: " + itemRequest.getProductId()));
 
-            if (stock.getQuantity() < item.getQuantity()) {
-                log.error("Insufficient stock for product ID {}. Available: {}, Requested: {}", item.getProductId(),
-                        stock.getQuantity(), item.getQuantity());
-                throw new IllegalStateException("Insufficient stock for product: " + product.getName());
+            if (stock.getQuantity() < itemRequest.getQuantity()) {
+                throw new IllegalArgumentException("Insufficient stock for product: " + product.getName() + ". Available: " + stock.getQuantity() + ", Requested: " + itemRequest.getQuantity());
             }
 
-            item.setOrder(order);
-        }
-
-        Order savedOrder = orderRepository.save(order);
-        
-        for (OrderItem item : savedOrder.getOrderItems()) {
-            Product product = productRepository.findById(item.getProductId())
-                                .orElseThrow(() -> new RuntimeException("Product not found after order creation: " + item.getProductId()));
-            Stock stock = stockRepository.findByProduct(product)
-                                .orElseThrow(() -> new RuntimeException("Stock not found after order creation for product: " + item.getProductId()));
-
-            product.setStockLevel(product.getStockLevel() - item.getQuantity());
-            productRepository.save(product);
-
-            stock.setQuantity(stock.getQuantity() - item.getQuantity());
+            stock.setQuantity(stock.getQuantity() - itemRequest.getQuantity());
             stockRepository.save(stock);
 
-            log.info("Decremented stock for product ID {}. New Product.stockLevel: {}, New Stock.quantity: {}",
-                     item.getProductId(), product.getStockLevel(), stock.getQuantity());
+            OrderItem orderItem = new OrderItem();
+            orderItem.setProduct(product);
+            orderItem.setQuantity(itemRequest.getQuantity());
+            orderItem.setPriceAtOrder(product.getPrice());
+            orderItem.setOrder(order);
+            orderItems.add(orderItem);
         }
 
-        log.info("Created new order with ID: {}", savedOrder.getOrderId());
-        calculateOrderTotal(savedOrder);
-        return savedOrder;
+        order.setOrderItems(orderItems);
+
+        Order savedOrder = orderRepository.save(order);
+        return convertToDto(savedOrder);
     }
 
-    @Transactional
-    public Order updateOrderStatus(Long orderId, Order.OrderStatus newStatus) {
-        return orderRepository.findById(orderId)
-                .map(existingOrder -> {
-                    existingOrder.setStatus(newStatus);
-                    log.info("Updated status for order ID {} to {}", orderId, newStatus);
-                    Order updatedOrder = orderRepository.save(existingOrder);
-                    calculateOrderTotal(updatedOrder);
-                    return updatedOrder;
-                })
-                .orElse(null);
+    public List<OrderResponseDTO> getAllOrders() {
+        return orderRepository.findAll().stream()
+                .map(this::convertToDto)
+                .collect(Collectors.toList());
     }
 
-    @Transactional
+    public Optional<OrderResponseDTO> getOrderById(Long id) {
+        return orderRepository.findById(id).map(this::convertToDto);
+    }
+
+    public OrderResponseDTO updateOrderStatus(Long id, OrderStatus newStatus) { // <--- Now uses the top-level enum
+        return orderRepository.findById(id).map(order -> {
+            order.setStatus(newStatus);
+            Order updatedOrder = orderRepository.save(order);
+            return convertToDto(updatedOrder);
+        }).orElseThrow(() -> new EntityNotFoundException("Order not found with id " + id));
+    }
+
     public void deleteOrder(Long id) {
-        if (orderRepository.existsById(id)) {
-            orderRepository.deleteById(id);
-            log.info("Deleted order with ID: {}", id);
-        } else {
-            log.warn("Attempted to delete non-existent order with ID: {}", id);
+        if (!orderRepository.existsById(id)) {
+            throw new EntityNotFoundException("Order not found with id " + id);
         }
+        orderRepository.deleteById(id);
     }
 }
 
-
-
-//// OrderService.java (Service - No Change from last iteration)
+//// src/main/java/Stock_Inventory/service/OrderService.java
 //package Stock_Inventory.service;
 //
+//import Stock_Inventory.dto.OrderCreateRequest;
+//import Stock_Inventory.dto.OrderItemRequest;
+//import Stock_Inventory.dto.OrderStatusUpdateRequest;
 //import Stock_Inventory.model.Order;
 //import Stock_Inventory.model.OrderItem;
 //import Stock_Inventory.model.Product;
 //import Stock_Inventory.model.Stock;
-//import Stock_Inventory.repository.OrderItemRepository;
+//import Stock_Inventory.repository.CustomerRepository;
 //import Stock_Inventory.repository.OrderRepository;
 //import Stock_Inventory.repository.ProductRepository;
 //import Stock_Inventory.repository.StockRepository;
-//import lombok.extern.slf4j.Slf4j;
+//import jakarta.transaction.Transactional;
 //import org.springframework.beans.factory.annotation.Autowired;
 //import org.springframework.stereotype.Service;
-//import org.springframework.transaction.annotation.Transactional;
 //
-//import java.time.LocalDateTime;
 //import java.util.List;
 //import java.util.Optional;
+//import java.util.stream.Collectors;
 //
 //@Service
-//@Slf4j
 //public class OrderService {
 //
 //    @Autowired
 //    private OrderRepository orderRepository;
 //
 //    @Autowired
-//    private OrderItemRepository orderItemRepository;
+//    private CustomerRepository customerRepository;
 //
 //    @Autowired
 //    private ProductRepository productRepository;
@@ -177,107 +169,92 @@ public class OrderService {
 //    @Autowired
 //    private StockRepository stockRepository;
 //
+//    @Transactional
+//    public Order createOrder(OrderCreateRequest request) {
+//        Order order = new Order();
+//        order.setCustomer(customerRepository.findById(request.getCustomerId())
+//                .orElseThrow(() -> new RuntimeException("Customer not found with id " + request.getCustomerId())));
+//
+//        // Process order items and update stock
+//        List<OrderItem> orderItems = request.getOrderItems().stream().map(itemRequest -> {
+//            Product product = productRepository.findById(itemRequest.getProductId())
+//                    .orElseThrow(() -> new RuntimeException("Product not found with id " + itemRequest.getProductId()));
+//
+//            Stock stock = stockRepository.findByProduct_ProductId(product.getProductId())
+//                    .orElseThrow(() -> new RuntimeException("Stock entry not found for product id " + product.getProductId()));
+//
+//            if (stock.getQuantity() < itemRequest.getQuantity()) {
+//                throw new IllegalArgumentException("Insufficient stock for product: " + product.getName() +
+//                        ". Available: " + stock.getQuantity() + ", Requested: " + itemRequest.getQuantity());
+//            }
+//
+//            // Deduct stock
+//            stock.setQuantity(stock.getQuantity() - itemRequest.getQuantity());
+//            stockRepository.save(stock); // Save updated stock
+//
+//            OrderItem orderItem = new OrderItem();
+//            orderItem.setOrder(order); // Set the parent order
+//            orderItem.setProductId(itemRequest.getProductId()); // Only store ProductID as per LLD
+//            orderItem.setQuantity(itemRequest.getQuantity());
+//            orderItem.setPriceAtOrder(itemRequest.getPriceAtOrder()); // Store price at order time
+//            return orderItem;
+//        }).collect(Collectors.toList());
+//
+//        order.setOrderItems(orderItems);
+//        order.setStatus(Order.OrderStatus.PENDING); // Default status
+//        Order savedOrder = orderRepository.save(order);
+//
+//        // Ensure total amount is calculated for immediate response if needed
+//        savedOrder.setTotalAmount(savedOrder.calculateTotalAmount());
+//
+//        return savedOrder;
+//    }
+//
 //    public List<Order> getAllOrders() {
 //        List<Order> orders = orderRepository.findAll();
-//        orders.forEach(this::calculateOrderTotal);
+//        // Calculate total amount for each order when fetching
+//        orders.forEach(order -> order.setTotalAmount(order.calculateTotalAmount()));
 //        return orders;
 //    }
 //
 //    public Optional<Order> getOrderById(Long id) {
 //        Optional<Order> order = orderRepository.findById(id);
-//        order.ifPresent(this::calculateOrderTotal);
+//        order.ifPresent(o -> o.setTotalAmount(o.calculateTotalAmount()));
 //        return order;
 //    }
 //
-//    private void calculateOrderTotal(Order order) {
-//        double total = 0.0;
-//        if (order.getOrderItems() != null) {
-//            for (OrderItem item : order.getOrderItems()) {
-//                total += item.getPriceAtOrder() * item.getQuantity();
-//            }
-//        }
-//        order.setTotalAmount(total);
-//    }
-//
 //    @Transactional
-//    public Order createOrder(Order order) {
-//        order.setOrderDate(LocalDateTime.now());
-//        order.setStatus(Order.OrderStatus.PENDING);
-//
-//        if (order.getOrderItems() == null || order.getOrderItems().isEmpty()) {
-//            log.warn("Attempted to create an order with no items.");
-//            return null;
-//        }
-//
-//        for (OrderItem item : order.getOrderItems()) {
-//            Optional<Product> productOptional = productRepository.findById(item.getProductId());
-//            if (productOptional.isEmpty()) {
-//                log.error("Product with ID {} not found for order item.", item.getProductId());
-//                throw new IllegalArgumentException("Product not found: " + item.getProductId());
+//    public Order updateOrderStatus(Long id, OrderStatusUpdateRequest request) {
+//        return orderRepository.findById(id).map(order -> {
+//            // Handle stock reversal if order is cancelled from a non-pending state
+//            if (order.getStatus() != Order.OrderStatus.CANCELLED && request.getStatus() == Order.OrderStatus.CANCELLED) {
+//                order.getOrderItems().forEach(orderItem -> {
+//                    stockRepository.findByProduct_ProductId(orderItem.getProductId()).ifPresent(stock -> {
+//                        stock.setQuantity(stock.getQuantity() + orderItem.getQuantity());
+//                        stockRepository.save(stock);
+//                    });
+//                });
 //            }
-//            Product product = productOptional.get();
-//
-//            Optional<Stock> stockOptional = stockRepository.findByProductId(product);
-//            if (stockOptional.isEmpty()) {
-//                log.error("Stock entry not found for product ID {}. Cannot process order.", item.getProductId());
-//                throw new IllegalStateException("Stock details missing for product: " + product.getName());
-//            }
-//            Stock stock = stockOptional.get();
-//
-//            item.setPriceAtOrder(product.getPrice());
-//
-//            if (stock.getQuantity() < item.getQuantity()) {
-//                log.error("Insufficient stock for product ID {}. Available: {}, Requested: {}", item.getProductId(),
-//                        stock.getQuantity(), item.getQuantity());
-//                throw new IllegalStateException("Insufficient stock for product: " + product.getName());
-//            }
-//
-//            item.setOrder(order);
-//        }
-//
-//        Order savedOrder = orderRepository.save(order);
-//        
-//        for (OrderItem item : savedOrder.getOrderItems()) {
-//            Product product = productRepository.findById(item.getProductId())
-//                                .orElseThrow(() -> new RuntimeException("Product not found after order creation: " + item.getProductId()));
-//            Stock stock = stockRepository.findByProductId(product)
-//                                .orElseThrow(() -> new RuntimeException("Stock not found after order creation for product: " + item.getProductId()));
-//
-//            product.setStockLevel(product.getStockLevel() - item.getQuantity());
-//            productRepository.save(product);
-//
-//            stock.setQuantity(stock.getQuantity() - item.getQuantity());
-//            stockRepository.save(stock);
-//
-//            log.info("Decremented stock for product ID {}. New Product.stockLevel: {}, New Stock.quantity: {}",
-//                     item.getProductId(), product.getStockLevel(), stock.getQuantity());
-//        }
-//
-//        log.info("Created new order with ID: {}", savedOrder.getOrderId());
-//        calculateOrderTotal(savedOrder);
-//        return savedOrder;
-//    }
-//
-//    @Transactional
-//    public Order updateOrderStatus(Long orderId, Order.OrderStatus newStatus) {
-//        return orderRepository.findById(orderId)
-//                .map(existingOrder -> {
-//                    existingOrder.setStatus(newStatus);
-//                    log.info("Updated status for order ID {} to {}", orderId, newStatus);
-//                    Order updatedOrder = orderRepository.save(existingOrder);
-//                    calculateOrderTotal(updatedOrder);
-//                    return updatedOrder;
-//                })
-//                .orElse(null);
+//            order.setStatus(request.getStatus());
+//            Order updatedOrder = orderRepository.save(order);
+//            updatedOrder.setTotalAmount(updatedOrder.calculateTotalAmount()); // Recalculate
+//            return updatedOrder;
+//        }).orElseThrow(() -> new RuntimeException("Order not found with id " + id));
 //    }
 //
 //    @Transactional
 //    public void deleteOrder(Long id) {
-//        if (orderRepository.existsById(id)) {
-//            orderRepository.deleteById(id);
-//            log.info("Deleted order with ID: {}", id);
-//        } else {
-//            log.warn("Attempted to delete non-existent order with ID: {}", id);
-//        }
+//        // Before deleting, consider if stock needs to be returned (e.g., if order was PENDING)
+//        orderRepository.findById(id).ifPresent(order -> {
+//            if (order.getStatus() == Order.OrderStatus.PENDING) {
+//                order.getOrderItems().forEach(orderItem -> {
+//                    stockRepository.findByProduct_ProductId(orderItem.getProductId()).ifPresent(stock -> {
+//                        stock.setQuantity(stock.getQuantity() + orderItem.getQuantity());
+//                        stockRepository.save(stock);
+//                    });
+//                });
+//            }
+//            orderRepository.delete(order);
+//        });
 //    }
 //}

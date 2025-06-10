@@ -1,4 +1,4 @@
-// src/main/java/Stock_Inventory/model/Supplier.java
+// src/main/java/Stock_Inventory/model/Customer.java
 package Stock_Inventory.model;
 
 import jakarta.persistence.*;
@@ -10,24 +10,29 @@ import com.fasterxml.jackson.annotation.JsonIdentityInfo;
 import com.fasterxml.jackson.annotation.ObjectIdGenerators;
 
 @Entity
-@Table(name = "supplier")
+@Table(name = "customer")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@JsonIdentityInfo(generator = ObjectIdGenerators.PropertyGenerator.class, property = "supplierId")
-public class Supplier {
+@JsonIdentityInfo(generator = ObjectIdGenerators.PropertyGenerator.class, property = "customerId")
+public class Customer {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long supplierId;
+    private Long customerId;
 
     @Column(nullable = false)
-    private String name;
+    private String firstName;
+
+    @Column(nullable = false)
+    private String lastName;
+
+    @Column(unique = true, nullable = false)
+    private String email;
+
+    private String phone;
 
     @Column(columnDefinition = "TEXT")
-    private String contactInfo;
-
-    @Column(columnDefinition = "TEXT")
-    private String productsSupplied; // As per LLD, this is a TEXT field
+    private String address;
 }

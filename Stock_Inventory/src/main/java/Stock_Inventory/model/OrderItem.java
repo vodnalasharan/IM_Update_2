@@ -1,65 +1,78 @@
-// OrderItem.java (Model - No Change)
 package Stock_Inventory.model;
 
-import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import com.fasterxml.jackson.annotation.JsonBackReference; // Important for bidirectional relationships
 
 @Entity
-@Getter
-@Setter
+@Table(name = "order_item") // Good practice to explicitly name table
+@Getter // Generates all getters
+@Setter // Generates all setters
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(name = "order_item")
 public class OrderItem {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private Long orderItemId; // This will be the 'id' in your DTO
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "product_id", nullable = false)
+    private Product product; // <--- This field is crucial for getProduct()/setProduct()
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id", nullable = false)
-    @JsonBackReference
-    private Order order;
-
-    @Column(name = "product_id", nullable = false)
-    private Long productId;
+    @JsonBackReference // Prevents infinite recursion when serializing Order -> OrderItems -> Order
+    private Order order; // The parent Order object
 
     @Column(nullable = false)
     private Integer quantity;
 
-    private Double priceAtOrder;
+    @Column(nullable = false)
+    private Double priceAtOrder; // Price of the product at the time the order was placed
 }
 
-// Update -2
+
+//// src/main/java/Stock_Inventory/model/OrderItem.java
 //package Stock_Inventory.model;
 //
-//import com.fasterxml.jackson.annotation.JsonBackReference;
 //import jakarta.persistence.*;
-//import lombok.*;
+//import lombok.AllArgsConstructor;
+//import lombok.Getter;
+//import lombok.NoArgsConstructor;
+//import lombok.Setter;
+//import com.fasterxml.jackson.annotation.JsonBackReference;
+//import com.fasterxml.jackson.annotation.JsonIdentityInfo;
+//import com.fasterxml.jackson.annotation.ObjectIdGenerators;
 //
-//// This entity serves as the join table for orders and products,
-//// allowing one order to have multiple products with their quantities.
 //@Entity
+//@Table(name = "order_item")
 //@Getter
 //@Setter
 //@NoArgsConstructor
 //@AllArgsConstructor
-//@Table(name = "order_item")
+//@JsonIdentityInfo(generator = ObjectIdGenerators.PropertyGenerator.class, property = "orderItemId")
 //public class OrderItem {
+//
 //    @Id
 //    @GeneratedValue(strategy = GenerationType.IDENTITY)
-//    private Long id; // Primary key for the order_item record itself
+//    private Long orderItemId;
 //
 //    @ManyToOne(fetch = FetchType.LAZY)
 //    @JoinColumn(name = "order_id", nullable = false)
 //    @JsonBackReference // Prevents infinite recursion in JSON serialization
 //    private Order order;
 //
+//    // As per LLD, Order entity has ProductID, not Product object directly in OrderItem
 //    @Column(name = "product_id", nullable = false)
-//    private Long productId; // Foreign key to the Product entity
+//    private Long productId;
 //
 //    @Column(nullable = false)
-//    private Integer quantity; // Quantity of this specific product in the order
+//    private Integer quantity;
 //
-//    private Double priceAtOrder; // Price of the product at the time of order
+//    @Column(nullable = false)
+//    private Double priceAtOrder; // Price at the time of order
 //}

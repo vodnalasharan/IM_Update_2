@@ -1,6 +1,8 @@
-// StockUpdateRequest.java (DTO - No Change)
+// Stock_Inventory/dto/StockUpdateRequest.java (Example structure)
 package Stock_Inventory.dto;
 
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -11,13 +13,23 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 public class StockUpdateRequest {
+	@NotNull(message = "Product ID cannot be null")
+	private Long productId; // Ensure this matches the stock entry's product
+    @NotNull(message = "Quantity cannot be null")
+    @Min(value = 0, message = "Quantity cannot be negative")
     private Integer quantity;
+
+    @NotNull(message = "Reorder level cannot be null")
+    @Min(value = 0, message = "Reorder level cannot be negative")
     private Integer reorderLevel;
 }
 
-//// StockUpdateRequest.java (DTO)
+
+//// src/main/java/Stock_Inventory/dto/StockUpdateRequest.java
 //package Stock_Inventory.dto;
 //
+//import jakarta.validation.constraints.NotNull;
+//import jakarta.validation.constraints.Min;
 //import lombok.AllArgsConstructor;
 //import lombok.Getter;
 //import lombok.NoArgsConstructor;
@@ -28,6 +40,14 @@ public class StockUpdateRequest {
 //@NoArgsConstructor
 //@AllArgsConstructor
 //public class StockUpdateRequest {
-//    private Integer quantity; // This is the new absolute quantity for stock
-//    private Integer reorderLevel; // Can be updated here too
+//    @NotNull(message = "Product ID cannot be null")
+//    private Long productId; // Ensure this matches the stock entry's product
+//
+//    @NotNull(message = "Quantity cannot be null")
+//    @Min(value = 0, message = "Quantity must be non-negative")
+//    private Integer quantity;
+//
+//    @NotNull(message = "Reorder level cannot be null")
+//    @Min(value = 0, message = "Reorder level must be non-negative")
+//    private Integer reorderLevel;
 //}

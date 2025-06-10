@@ -1,17 +1,18 @@
-// ProductController.java (Controller - No Change)
+// src/main/java/Stock_Inventory/controller/ProductController.java
 package Stock_Inventory.controller;
 
+import Stock_Inventory.dto.ProductCreateRequest;
+import Stock_Inventory.dto.ProductUpdateRequest;
+import Stock_Inventory.dto.ProductQuantityUpdateRequest;
 import Stock_Inventory.model.Product;
 import Stock_Inventory.service.ProductService;
-import Stock_Inventory.dto.ProductCreationRequest;
-import Stock_Inventory.dto.QuantityUpdateRequest;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/products")
@@ -20,82 +21,106 @@ public class ProductController {
     @Autowired
     private ProductService productService;
 
-    @GetMapping
-    public ResponseEntity<List<Product>> getAllProducts() {
-        return new ResponseEntity<>(productService.getAllProducts(), HttpStatus.OK);
+    /**
+     * Creates a new product and initializes its stock entry.
+     * @param request DTO containing product details and initial stock level.
+     * @return ResponseEntity with the created Product and HTTP status 201.
+     */
+    @PostMapping
+    public ResponseEntity<Product> createProduct(@Valid @RequestBody ProductCreateRequest request) {
+        Product product = productService.createProduct(request);
+        return new ResponseEntity<>(product, HttpStatus.CREATED);
     }
 
+    /**
+     * Retrieves a list of all products.
+     * @return ResponseEntity with a list of Products and HTTP status 200.
+     */
+    @GetMapping
+    public ResponseEntity<List<Product>> getAllProducts() {
+        List<Product> products = productService.getAllProducts();
+        return new ResponseEntity<>(products, HttpStatus.OK);
+    }
+
+    /**
+     * Retrieves a product by its ID.
+     * @param id The ID of the product to retrieve.
+     * @return ResponseEntity with the Product and HTTP status 200, or 404 if not found.
+     */
     @GetMapping("/{id}")
     public ResponseEntity<Product> getProductById(@PathVariable Long id) {
-        Optional<Product> product = productService.getProductById(id);
-        return product.map(ResponseEntity::ok)
+        return productService.getProductById(id)
+                .map(product -> new ResponseEntity<>(product, HttpStatus.OK))
                 .orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }
 
-    @PostMapping
-    public ResponseEntity<Product> addProduct(@RequestBody ProductCreationRequest request) {
-        if (request.getInitialStockLevel() == null || request.getInitialStockLevel() < 0) {
-            return ResponseEntity.badRequest().body(null);
-        }
-        if (request.getReorderLevel() == null || request.getReorderLevel() < 0) {
-            request.setReorderLevel(5);
-        }
-
-        Product product = new Product();
-        product.setName(request.getName());
-        product.setDescription(request.getDescription());
-        product.setPrice(request.getPrice());
-
-        Product savedProduct = productService.addOrUpdateProductAndStock(product, request.getInitialStockLevel(), request.getReorderLevel());
-        if (savedProduct == null) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-        return new ResponseEntity<>(savedProduct, HttpStatus.CREATED);
-    }
-
-    @PatchMapping("/{productId}/quantity")
-    public ResponseEntity<Product> updateProductQuantity(@PathVariable Long productId, @RequestBody QuantityUpdateRequest request) {
-        if (request.getQuantity() == null) {
-            return ResponseEntity.badRequest().build();
-        }
-        Product updatedProduct = productService.updateProductAndStockQuantities(productId, request.getQuantity());
-        return updatedProduct != null ? ResponseEntity.ok(updatedProduct) : ResponseEntity.notFound().build();
-    }
-
+    /**
+     * Updates an existing product's details.
+     * @param id The ID of the product to update.
+     * @param request DTO containing updated product details.
+     * @return ResponseEntity with the updated Product and HTTP status 200, or 404 if not found.
+     */
     @PutMapping("/{id}")
-    public ResponseEntity<Product> updateProduct(@PathVariable Long id, @RequestBody Product product) {
-        Product updatedProduct = productService.updateProductDetails(id, product);
-        return updatedProduct != null ? ResponseEntity.ok(updatedProduct) : ResponseEntity.notFound().build();
+    public ResponseEntity<Product> updateProduct(@PathVariable Long id, @Valid @RequestBody ProductUpdateRequest request) {
+        try {
+            Product updatedProduct = productService.updateProduct(id, request);
+            return new ResponseEntity<>(updatedProduct, HttpStatus.OK);
+        } catch (jakarta.persistence.EntityNotFoundException e) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
     }
 
+    /**
+     * Updates the quantity (stock level) of a product.
+     * @param id The ID of the product to update.
+     * @param request DTO containing the quantity change.
+     * @return ResponseEntity with the updated Product and HTTP status 200, 400 for bad request, or 404 if not found.
+     */
+    @PatchMapping("/{id}/quantity")
+    public ResponseEntity<Product> updateProductQuantity(@PathVariable Long id, @Valid @RequestBody ProductQuantityUpdateRequest request) {
+        try {
+            Product updatedProduct = productService.updateProductQuantity(id, request);
+            return new ResponseEntity<>(updatedProduct, HttpStatus.OK);
+        } catch (IllegalArgumentException e) {
+            // e.g., insufficient stock leading to negative quantity
+            return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
+        } catch (jakarta.persistence.EntityNotFoundException e) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
+    }
+
+    /**
+     * Deletes a product by its ID.
+     * @param id The ID of the product to delete.
+     * @return ResponseEntity with HTTP status 204 (No Content) on success, or 404 if not found.
+     */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
-        Optional<Product> product = productService.getProductById(id);
-        if (product.isPresent()) {
+        try {
             productService.deleteProduct(id);
-            return ResponseEntity.noContent().build();
+            return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+        } catch (jakarta.persistence.EntityNotFoundException e) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
         }
-        return ResponseEntity.notFound().build();
     }
 }
 
 
-
-// Update -2
-//// ProductController.java (Controller - Using DTOs from new package)
+//// src/main/java/Stock_Inventory/controller/ProductController.java
 //package Stock_Inventory.controller;
 //
+//import Stock_Inventory.dto.ProductCreateRequest;
+//import Stock_Inventory.dto.ProductUpdateRequest;
+//import Stock_Inventory.dto.ProductQuantityUpdateRequest;
 //import Stock_Inventory.model.Product;
 //import Stock_Inventory.service.ProductService;
-//import Stock_Inventory.dto.ProductCreationRequest;
-//import Stock_Inventory.dto.QuantityUpdateRequest;
+//import jakarta.validation.Valid;
 //import org.springframework.beans.factory.annotation.Autowired;
 //import org.springframework.http.HttpStatus;
 //import org.springframework.http.ResponseEntity;
 //import org.springframework.web.bind.annotation.*;
 //
 //import java.util.List;
-//import java.util.Optional;
 //
 //@RestController
 //@RequestMapping("/api/products")
@@ -104,155 +129,54 @@ public class ProductController {
 //    @Autowired
 //    private ProductService productService;
 //
+//    @PostMapping
+//    public ResponseEntity<Product> createProduct(@Valid @RequestBody ProductCreateRequest request) {
+//        Product product = productService.createProduct(request);
+//        return new ResponseEntity<>(product, HttpStatus.CREATED);
+//    }
+//
 //    @GetMapping
 //    public ResponseEntity<List<Product>> getAllProducts() {
-//        return new ResponseEntity<>(productService.getAllProducts(), HttpStatus.OK);
+//        List<Product> products = productService.getAllProducts();
+//        return new ResponseEntity<>(products, HttpStatus.OK);
 //    }
 //
 //    @GetMapping("/{id}")
 //    public ResponseEntity<Product> getProductById(@PathVariable Long id) {
-//        Optional<Product> product = productService.getProductById(id);
-//        return product.map(ResponseEntity::ok)
+//        return productService.getProductById(id)
+//                .map(product -> new ResponseEntity<>(product, HttpStatus.OK))
 //                .orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
 //    }
 //
-//    @PostMapping
-//    public ResponseEntity<Product> addProduct(@RequestBody ProductCreationRequest request) {
-//        if (request.getInitialQuantity() == null || request.getInitialQuantity() < 0) {
-//            return ResponseEntity.badRequest().body(null);
-//        }
-//        if (request.getReorderLevel() == null || request.getReorderLevel() < 0) {
-//            request.setReorderLevel(5); // Default reorder level
-//        }
-//
-//        Product product = new Product();
-//        product.setName(request.getName());
-//        product.setDescription(request.getDescription());
-//        product.setPrice(request.getPrice());
-//
-//        Product savedProduct = productService.addOrUpdateProductAndStock(product, request.getInitialQuantity(), request.getReorderLevel());
-//        if (savedProduct == null) {
-//            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-//        }
-//        return new ResponseEntity<>(savedProduct, HttpStatus.CREATED);
-//    }
-//
-//    // PATCH endpoint to update product quantity (e.g., from supplier receipts or manual adjustments)
-//    @PatchMapping("/{productId}/quantity")
-//    public ResponseEntity<Product> updateProductQuantity(@PathVariable Long productId, @RequestBody QuantityUpdateRequest request) {
-//        if (request.getQuantity() == null) {
-//            return ResponseEntity.badRequest().build();
-//        }
-//        // The 'quantity' in the request body is the *change* in quantity (positive for add, negative for subtract).
-//        Product updatedProduct = productService.updateProductQuantity(productId, request.getQuantity());
-//        return updatedProduct != null ? ResponseEntity.ok(updatedProduct) : ResponseEntity.notFound().build();
-//    }
-//
 //    @PutMapping("/{id}")
-//    public ResponseEntity<Product> updateProduct(@PathVariable Long id, @RequestBody Product product) {
-//        // This PUT endpoint only updates product details, not stock.
-//        Product updatedProduct = productService.updateProduct(id, product);
-//        return updatedProduct != null ? ResponseEntity.ok(updatedProduct) : ResponseEntity.notFound().build();
+//    public ResponseEntity<Product> updateProduct(@PathVariable Long id, @Valid @RequestBody ProductUpdateRequest request) {
+//        try {
+//            Product updatedProduct = productService.updateProduct(id, request);
+//            return new ResponseEntity<>(updatedProduct, HttpStatus.OK);
+//        } catch (RuntimeException e) {
+//            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+//        }
+//    }
+//
+//    @PatchMapping("/{id}/quantity")
+//    public ResponseEntity<Product> updateProductQuantity(@PathVariable Long id, @Valid @RequestBody ProductQuantityUpdateRequest request) {
+//        try {
+//            Product updatedProduct = productService.updateProductQuantity(id, request);
+//            return new ResponseEntity<>(updatedProduct, HttpStatus.OK);
+//        } catch (IllegalArgumentException e) {
+//            return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
+//        } catch (RuntimeException e) {
+//            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+//        }
 //    }
 //
 //    @DeleteMapping("/{id}")
 //    public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
-//        Optional<Product> product = productService.getProductById(id);
-//        if (product.isPresent()) {
+//        try {
 //            productService.deleteProduct(id);
-//            return ResponseEntity.noContent().build();
-//        }
-//        return ResponseEntity.notFound().build();
-//    }
-//}
-
-
-
-//package Stock_Inventory.controller;
-//
-//import Stock_Inventory.model.Product;
-//import Stock_Inventory.service.ProductService;
-//import org.springframework.beans.factory.annotation.Autowired;
-//import org.springframework.http.HttpStatus;
-//import org.springframework.http.ResponseEntity;
-//import org.springframework.web.bind.annotation.*;
-//
-//import java.util.List;
-//import java.util.Optional;
-//
-//@RestController
-//@RequestMapping("/api/products")
-//public class ProductController {
-//
-//    @Autowired
-//    private ProductService productService;
-//
-//    @GetMapping
-//    public ResponseEntity<List<Product>> getAllProducts() {
-//        return new ResponseEntity<>(productService.getAllProducts(), HttpStatus.OK);
-//    }
-//
-//    @GetMapping("/{id}")
-//    public ResponseEntity<Product> getProductById(@PathVariable Long id) {
-//        Optional<Product> product = productService.getProductById(id);
-//        return product.map(ResponseEntity::ok)
-//                .orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
-//    }
-//
-//    @PostMapping
-//    public ResponseEntity<Product> addProduct(@RequestBody Product product) {
-//        // Validate stock details if present
-//        if (product.getStock() != null &&
-//                (product.getStock().getQuantity() == null || product.getStock().getReorderLevel() == null)) {
-//            return ResponseEntity.badRequest().body(null);
-//        }
-//
-//        Integer quantity = (product.getStock() != null) ? product.getStock().getQuantity() : null;
-//        Integer reorderLevel = (product.getStock() != null) ? product.getStock().getReorderLevel() : null;
-//
-//        Product savedProduct = productService.addOrUpdateProductAndStock(product, quantity, reorderLevel);
-//        if (savedProduct == null) {
-//            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build(); // Should not happen with current logic
-//        }
-//        return new ResponseEntity<>(savedProduct, HttpStatus.CREATED);
-//    }
-//
-//    // New endpoint to update only the quantity of an existing product
-//    @PatchMapping("/{productId}/quantity")
-//    public ResponseEntity<Product> updateProductQuantity(@PathVariable Long productId, @RequestBody QuantityUpdate request) {
-//        if (request.getQuantity() == null) {
-//            return ResponseEntity.badRequest().build();
-//        }
-//        Product updatedProduct = productService.updateProductQuantity(productId, request.getQuantity());
-//        return updatedProduct != null ? ResponseEntity.ok(updatedProduct) : ResponseEntity.notFound().build();
-//    }
-//
-//    @PutMapping("/{id}")
-//    public ResponseEntity<Product> updateProduct(@PathVariable Long id, @RequestBody Product product) {
-//        Product updatedProduct = productService.updateProduct(id, product);
-//        return updatedProduct != null ? ResponseEntity.ok(updatedProduct) : ResponseEntity.notFound().build();
-//    }
-//
-//    @DeleteMapping("/{id}")
-//    public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
-//        Optional<Product> product = productService.getProductById(id);
-//        if (product.isPresent()) {
-//            productService.deleteProduct(id);
-//            return ResponseEntity.noContent().build();
-//        }
-//        return ResponseEntity.notFound().build();
-//    }
-//
-//    // Helper class for updating quantity
-//    static class QuantityUpdate {
-//        private Integer quantity;
-//
-//        public Integer getQuantity() {
-//            return quantity;
-//        }
-//
-//        public void setQuantity(Integer quantity) {
-//            this.quantity = quantity;
+//            return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+//        } catch (RuntimeException e) {
+//            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
 //        }
 //    }
 //}

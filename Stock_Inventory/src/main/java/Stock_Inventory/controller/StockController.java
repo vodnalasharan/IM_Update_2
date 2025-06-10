@@ -1,81 +1,288 @@
-// StockController.java (Controller - No Change)
+// src/main/java/Stock_Inventory/controller/StockController.java
 package Stock_Inventory.controller;
 
-import Stock_Inventory.model.Stock;
-import Stock_Inventory.service.StockService;
+import Stock_Inventory.dto.StockAddRequest;
 import Stock_Inventory.dto.StockUpdateRequest;
-import Stock_Inventory.dto.StockCreationRequest;
+import Stock_Inventory.dto.StockResponseDTO; // Ensure this is imported
+import Stock_Inventory.service.StockService;
+import jakarta.persistence.EntityNotFoundException;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Optional;
 
 @RestController
-@RequestMapping("/api/stock")
+@RequestMapping("/api/stocks")
+@Validated
 public class StockController {
 
     @Autowired
     private StockService stockService;
 
-    @GetMapping("/{productId}")
-    public ResponseEntity<Stock> getStockByProductId(@PathVariable Long productId) {
-        Optional<Stock> stock = stockService.getStockByProductId(productId);
-        return stock.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    // Now returns StockResponseDTO
+    @PostMapping
+    public ResponseEntity<StockResponseDTO> createStock(@Valid @RequestBody StockAddRequest request) {
+        try {
+            StockResponseDTO stockDTO = stockService.createStock(request);
+            return new ResponseEntity<>(stockDTO, HttpStatus.CREATED);
+        } catch (IllegalArgumentException e) {
+            return new ResponseEntity<>(null, HttpStatus.CONFLICT);
+        } catch (jakarta.persistence.EntityNotFoundException e) {
+            return new ResponseEntity<>(null, HttpStatus.NOT_FOUND);
+        }
     }
 
     @GetMapping
-    public ResponseEntity<List<Stock>> getAllStockEntries() {
-        return ResponseEntity.ok(stockService.getAllStockEntries());
+    public ResponseEntity<List<StockResponseDTO>> getAllStocks() {
+        List<StockResponseDTO> stocks = stockService.getAllStocks();
+        return new ResponseEntity<>(stocks, HttpStatus.OK);
     }
 
-    @PutMapping("/{productId}")
-    public ResponseEntity<Stock> updateStock(@PathVariable Long productId, @RequestBody StockUpdateRequest request) {
-        Stock updatedStock = stockService.updateStockEntry(productId, request.getQuantity(), request.getReorderLevel());
-        return updatedStock != null ? ResponseEntity.ok(updatedStock) : ResponseEntity.notFound().build();
+    @GetMapping("/{id}")
+    public ResponseEntity<StockResponseDTO> getStockById(@PathVariable Long id) {
+        return stockService.getStockById(id)
+                .map(stock -> new ResponseEntity<>(stock, HttpStatus.OK))
+                .orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }
 
-    @PostMapping("/{productId}")
-    public ResponseEntity<Stock> addStockForProduct(@PathVariable Long productId, @RequestBody StockCreationRequest request) {
-        if (request.getQuantity() == null || request.getQuantity() < 0 || request.getReorderLevel() == null || request.getReorderLevel() < 0) {
-            return ResponseEntity.badRequest().build();
-        }
-        Stock newStock = stockService.addStockEntry(productId, request.getQuantity(), request.getReorderLevel());
-        if (newStock == null) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).build();
-        }
-        return new ResponseEntity<>(newStock, HttpStatus.CREATED);
+    @GetMapping("/product/{productId}")
+    public ResponseEntity<StockResponseDTO> getStockByProductId(@PathVariable Long productId) {
+        return stockService.getStockByProductId(productId)
+                .map(stock -> new ResponseEntity<>(stock, HttpStatus.OK))
+                .orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }
 
-    @DeleteMapping("/{productId}")
-    public ResponseEntity<Void> deleteStock(@PathVariable Long productId) {
-        Optional<Stock> stock = stockService.getStockByProductId(productId);
-        if (stock.isPresent()) {
-            stockService.deleteStockByProductId(productId);
-            return ResponseEntity.noContent().build();
+    // Now returns StockResponseDTO
+//    @PutMapping("/{id}")
+//    public ResponseEntity<StockResponseDTO> updateStock(@PathVariable Long id, @Valid @RequestBody StockUpdateRequest request) {
+//        try {
+//            StockResponseDTO updatedStockDTO = stockService.updateStock(id, request);
+//            return new ResponseEntity<>(updatedStockDTO, HttpStatus.OK);
+//        } catch (IllegalArgumentException e) {
+//            // This is the line that's returning 400 BAD REQUEST
+//            return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
+//        } catch (jakarta.persistence.EntityNotFoundException e) {
+//            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+//        }
+//    }
+//    @PutMapping("/{id}")
+//    public ResponseEntity<StockResponseDTO> updateStock(@PathVariable Long id, @Valid @RequestBody StockUpdateRequest request) {
+//        try {
+//            StockResponseDTO updatedStockDTO = stockService.updateStock(id, request);
+//            return new ResponseEntity<>(updatedStockDTO, HttpStatus.OK);
+//        } catch (IllegalArgumentException e) {
+//            return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
+//        } catch (jakarta.persistence.EntityNotFoundException e) {
+//            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+//        }
+//    }
+
+    // Now returns StockResponseDTO
+    @PutMapping("/product/{productId}/quantity")
+    public ResponseEntity<StockResponseDTO> updateStockQuantity(
+            @PathVariable Long productId,
+            @RequestParam @Min(value = 0, message = "Quantity cannot be negative") Integer newQuantity) {
+        try {
+            StockResponseDTO updatedStockDTO = stockService.updateStockQuantity(productId, newQuantity);
+            return ResponseEntity.ok(updatedStockDTO);
+        } catch (jakarta.persistence.EntityNotFoundException e) {
+            return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.notFound().build();
+    }
+
+    // Now returns StockResponseDTO
+    @PutMapping("/product/{productId}/reorder-level")
+    public ResponseEntity<StockResponseDTO> updateReorderLevel(
+            @PathVariable Long productId,
+            @RequestParam @Min(value = 0, message = "Reorder level cannot be negative") Integer newReorderLevel) {
+        try {
+            StockResponseDTO updatedStockDTO = stockService.updateReorderLevel(productId, newReorderLevel);
+            return ResponseEntity.ok(updatedStockDTO);
+        } catch (jakarta.persistence.EntityNotFoundException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteStock(@PathVariable Long id) {
+        try {
+            stockService.deleteStock(id);
+            return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+        } catch (jakarta.persistence.EntityNotFoundException e) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
     }
 }
 
 
-// Update -2
-//// StockController.java (Controller - Using DTOs from new package)
+//// src/main/java/Stock_Inventory/controller/StockController.java
 //package Stock_Inventory.controller;
 //
+//import Stock_Inventory.dto.StockAddRequest;
+//import Stock_Inventory.dto.StockUpdateRequest;
 //import Stock_Inventory.model.Stock;
 //import Stock_Inventory.service.StockService;
+//import jakarta.persistence.EntityNotFoundException;
+//import jakarta.validation.Valid;
+//import jakarta.validation.constraints.Min;
+//import org.springframework.beans.factory.annotation.Autowired;
+//import org.springframework.http.HttpStatus;
+//import org.springframework.http.ResponseEntity;
+//import org.springframework.validation.annotation.Validated; // Needed for @RequestParam validation
+//import org.springframework.web.bind.annotation.*;
+//
+//import java.util.List;
+//
+//@RestController
+//@RequestMapping("/api/stocks")
+//@Validated // Enable validation for request parameters (like @Min on newReorderLevel)
+//public class StockController {
+//
+//    @Autowired
+//    private StockService stockService;
+//
+//    /**
+//     * Creates a new stock entry. This is for explicit stock creation if a product exists but lacks a stock entry.
+//     * Typically, initial stock is handled via product creation.
+//     * @param request DTO containing productId, quantity, reorderLevel.
+//     * @return ResponseEntity with the created Stock and HTTP status 201.
+//     */
+//    @PostMapping
+//    public ResponseEntity<Stock> createStock(@Valid @RequestBody StockAddRequest request) {
+//        try {
+//            Stock stock = stockService.createStock(request);
+//            return new ResponseEntity<>(stock, HttpStatus.CREATED);
+//        } catch (IllegalArgumentException e) {
+//            return new ResponseEntity<>(null, HttpStatus.CONFLICT); // Stock entry already exists
+//        } catch (jakarta.persistence.EntityNotFoundException e) {
+//            return new ResponseEntity<>(null, HttpStatus.NOT_FOUND); // Product not found
+//        }
+//    }
+//
+//    /**
+//     * Retrieves a list of all stock entries.
+//     * @return ResponseEntity with a list of Stocks and HTTP status 200.
+//     */
+//    @GetMapping
+//    public ResponseEntity<List<Stock>> getAllStocks() {
+//        List<Stock> stocks = stockService.getAllStocks();
+//        return new ResponseEntity<>(stocks, HttpStatus.OK);
+//    }
+//
+//    /**
+//     * Retrieves a stock entry by its unique stock ID.
+//     * @param id The ID of the stock entry.
+//     * @return ResponseEntity with the Stock and HTTP status 200, or 404 if not found.
+//     */
+//    @GetMapping("/{id}")
+//    public ResponseEntity<Stock> getStockById(@PathVariable Long id) {
+//        return stockService.getStockById(id)
+//                .map(stock -> new ResponseEntity<>(stock, HttpStatus.OK))
+//                .orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
+//    }
+//
+//    /**
+//     * Retrieves a stock entry by the associated product's ID.
+//     * @param productId The ID of the product.
+//     * @return ResponseEntity with the Stock and HTTP status 200, or 404 if not found.
+//     */
+//    @GetMapping("/product/{productId}")
+//    public ResponseEntity<Stock> getStockByProductId(@PathVariable Long productId) {
+//        return stockService.getStockByProductId(productId)
+//                .map(stock -> new ResponseEntity<>(stock, HttpStatus.OK))
+//                .orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
+//    }
+//
+//    /**
+//     * Updates an existing stock entry by its stock ID.
+//     * @param id The ID of the stock entry to update.
+//     * @param request DTO containing updated quantity and reorder level.
+//     * @return ResponseEntity with the updated Stock and HTTP status 200, 400 for bad request, or 404 if not found.
+//     */
+//    @PutMapping("/{id}")
+//    public ResponseEntity<Stock> updateStock(@PathVariable Long id, @Valid @RequestBody StockUpdateRequest request) {
+//        try {
+//            Stock updatedStock = stockService.updateStock(id, request);
+//            return new ResponseEntity<>(updatedStock, HttpStatus.OK);
+//        } catch (IllegalArgumentException e) {
+//            return new ResponseEntity<>(HttpStatus.BAD_REQUEST); // Product ID mismatch
+//        } catch (jakarta.persistence.EntityNotFoundException e) {
+//            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+//        }
+//    }
+//
+//    /**
+//     * Updates only the quantity of stock for a given product.
+//     * @param productId The ID of the product.
+//     * @param newQuantity The new quantity for the stock.
+//     * @return ResponseEntity with the updated Stock and HTTP status 200, or 404 if not found.
+//     */
+//    @PutMapping("/product/{productId}/quantity")
+//    public ResponseEntity<Stock> updateStockQuantity(
+//            @PathVariable Long productId,
+//            @RequestParam @Min(value = 0, message = "Quantity cannot be negative") Integer newQuantity) {
+//        try {
+//            Stock updatedStock = stockService.updateStockQuantity(productId, newQuantity);
+//            return ResponseEntity.ok(updatedStock);
+//        } catch (jakarta.persistence.EntityNotFoundException e) {
+//            return ResponseEntity.notFound().build();
+//        }
+//    }
+//
+//    /**
+//     * Updates only the reorder level for a given product.
+//     * @param productId The ID of the product.
+//     * @param newReorderLevel The new reorder level.
+//     * @return ResponseEntity with the updated Stock and HTTP status 200, or 404 if not found.
+//     */
+//    @PutMapping("/product/{productId}/reorder-level")
+//    public ResponseEntity<Stock> updateReorderLevel(
+//            @PathVariable Long productId,
+//            @RequestParam @Min(value = 0, message = "Reorder level cannot be negative") Integer newReorderLevel) {
+//        try {
+//            Stock updatedStock = stockService.updateReorderLevel(productId, newReorderLevel);
+//            return ResponseEntity.ok(updatedStock);
+//        } catch (jakarta.persistence.EntityNotFoundException e) {
+//            return ResponseEntity.notFound().build();
+//        }
+//    }
+//
+//    /**
+//     * Deletes a stock entry by its ID.
+//     * @param id The ID of the stock entry to delete.
+//     * @return ResponseEntity with HTTP status 204 (No Content) on success, or 404 if not found.
+//     */
+//    @DeleteMapping("/{id}")
+//    public ResponseEntity<Void> deleteStock(@PathVariable Long id) {
+//        try {
+//            stockService.deleteStock(id);
+//            return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+//        } catch (jakarta.persistence.EntityNotFoundException e) {
+//            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+//        }
+//    }
+//}
+
+
+//// src/main/java/Stock_Inventory/controller/StockController.java
+//package Stock_Inventory.controller;
+//
+//import Stock_Inventory.dto.StockAddRequest;
 //import Stock_Inventory.dto.StockUpdateRequest;
-//import Stock_Inventory.dto.StockCreationRequest;
+//import Stock_Inventory.model.Stock;
+//import Stock_Inventory.service.StockService;
+//import jakarta.validation.Valid;
 //import org.springframework.beans.factory.annotation.Autowired;
 //import org.springframework.http.HttpStatus;
 //import org.springframework.http.ResponseEntity;
 //import org.springframework.web.bind.annotation.*;
 //
 //import java.util.List;
-//import java.util.Optional;
 //
 //@RestController
 //@RequestMapping("/api/stock")
@@ -84,103 +291,49 @@ public class StockController {
 //    @Autowired
 //    private StockService stockService;
 //
-//    @GetMapping("/{productId}")
-//    public ResponseEntity<Stock> getStockByProductId(@PathVariable Long productId) {
-//        Optional<Stock> stock = stockService.getStockByProductId(productId);
-//        return stock.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+//    @PostMapping
+//    public ResponseEntity<Stock> createStock(@Valid @RequestBody StockAddRequest request) {
+//        try {
+//            Stock stock = stockService.createStock(request);
+//            return new ResponseEntity<>(stock, HttpStatus.CREATED);
+//        } catch (IllegalArgumentException e) {
+//            return new ResponseEntity<>(null, HttpStatus.CONFLICT); // Stock entry already exists
+//        } catch (RuntimeException e) {
+//            return new ResponseEntity<>(null, HttpStatus.NOT_FOUND); // Product not found
+//        }
 //    }
 //
 //    @GetMapping
-//    public ResponseEntity<List<Stock>> getAllStockEntries() {
-//        return ResponseEntity.ok(stockService.getAllStockEntries());
+//    public ResponseEntity<List<Stock>> getAllStocks() {
+//        return (ResponseEntity<List<Stock>>) stockService.getAllStocks();
 //    }
 //
-//    // PUT endpoint to update the absolute stock quantity and reorder level
-//    @PutMapping("/{productId}")
-//    public ResponseEntity<Stock> updateStock(@PathVariable Long productId, @RequestBody StockUpdateRequest request) {
-//        if (request.getQuantity() == null || request.getQuantity() < 0) {
-//            return ResponseEntity.badRequest().build();
+//    @GetMapping("/{id}")
+//    public ResponseEntity<Stock> getStockById(@PathVariable Long id) {
+//        return stockService.getStockById(id)
+//                .map(stock -> new ResponseEntity<>(stock, HttpStatus.OK))
+//                .orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
+//    }
+//
+//    @PutMapping("/{id}")
+//    public ResponseEntity<Stock> updateStock(@PathVariable Long id, @Valid @RequestBody StockUpdateRequest request) {
+//        try {
+//            Stock updatedStock = stockService.updateStock(id, request);
+//            return new ResponseEntity<>(updatedStock, HttpStatus.OK);
+//        } catch (IllegalArgumentException e) {
+//            return new ResponseEntity<>(HttpStatus.BAD_REQUEST); // Product ID mismatch
+//        } catch (RuntimeException e) {
+//            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
 //        }
-//        // This updates the quantity to a specific new level.
-//        Stock updatedStock = stockService.updateStockQuantity(productId, request.getQuantity());
-//        // If you also want to update reorder level via this endpoint, you'd add logic here
-//        // stockService.updateReorderLevel(productId, request.getReorderLevel());
-//        return updatedStock != null ? ResponseEntity.ok(updatedStock) : ResponseEntity.notFound().build();
 //    }
 //
-//    // POST endpoint to add a *new* stock entry for a product (should typically only happen once per product)
-//    @PostMapping("/{productId}")
-//    public ResponseEntity<Stock> addStockForProduct(@PathVariable Long productId, @RequestBody StockCreationRequest request) {
-//        if (request.getQuantity() == null || request.getQuantity() < 0) {
-//            return ResponseEntity.badRequest().build();
+//    @DeleteMapping("/{id}")
+//    public ResponseEntity<Void> deleteStock(@PathVariable Long id) {
+//        try {
+//            stockService.deleteStock(id);
+//            return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+//        } catch (RuntimeException e) {
+//            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
 //        }
-//        if (request.getReorderLevel() == null || request.getReorderLevel() < 0) {
-//            request.setReorderLevel(5); // Default reorder level
-//        }
-//
-//        Stock newStock = stockService.addStock(productId, request.getQuantity(), request.getReorderLevel());
-//        if (newStock == null) {
-//            return ResponseEntity.status(HttpStatus.CONFLICT).build(); // Indicates stock already exists for this product
-//        }
-//        return new ResponseEntity<>(newStock, HttpStatus.CREATED);
-//    }
-//
-//    @DeleteMapping("/{productId}")
-//    public ResponseEntity<Void> deleteStock(@PathVariable Long productId) {
-//        Optional<Stock> stock = stockService.getStockByProductId(productId);
-//        if (stock.isPresent()) {
-//            stockService.deleteStockByProductId(productId);
-//            return ResponseEntity.noContent().build();
-//        }
-//        return ResponseEntity.notFound().build();
-//    }
-//}
-
-
-//package Stock_Inventory.controller;
-//
-//import Stock_Inventory.model.Stock;
-//import Stock_Inventory.model.Product;
-//import Stock_Inventory.service.StockService;
-//import Stock_Inventory.service.ProductService;
-//import org.springframework.beans.factory.annotation.Autowired;
-//import org.springframework.http.ResponseEntity;
-//import org.springframework.web.bind.annotation.*;
-//import java.util.List;
-//import java.util.Optional;
-//
-//@RestController
-//@RequestMapping("/api/stock")
-//public class StockController {
-//
-//    @Autowired
-//    private StockService stockService;
-//
-//    @Autowired
-//    private ProductService productService;
-//
-//    @GetMapping("/{productId}")
-//    public ResponseEntity<Stock> getStockByProductId(@PathVariable Long productId) {
-//        Optional<Stock> stock = stockService.getStockByProductId(productId);
-//        return stock.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
-//    }
-//
-//    @GetMapping
-//    public ResponseEntity<List<Stock>> getAllStockEntries() {
-//        return ResponseEntity.ok(stockService.getAllStockEntries());
-//    }
-//
-//    @PutMapping("/{productId}")
-//    public ResponseEntity<Stock> updateStock(@PathVariable Long productId, @RequestBody Stock stock) {
-//        Optional<Product> product = productService.getProductById(productId);
-//        return product.map(p -> ResponseEntity.ok(stockService.updateStockByProduct(p, stock.getQuantity())))
-//                .orElseGet(() -> ResponseEntity.notFound().build());
-//    }
-//
-//    @PostMapping("/{productId}")
-//    public ResponseEntity<Stock> addStock(@PathVariable Long productId, @RequestBody Stock stock) {
-//        Optional<Product> product = productService.getProductById(productId);
-//        return product.map(p -> ResponseEntity.ok(stockService.addStock(p, stock.getQuantity(), stock.getReorderLevel())))
-//                .orElseGet(() -> ResponseEntity.notFound().build());
 //    }
 //}

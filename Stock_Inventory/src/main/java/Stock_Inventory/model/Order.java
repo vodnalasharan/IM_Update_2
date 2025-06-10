@@ -1,77 +1,61 @@
-// Order.java (Model - No Change)
 package Stock_Inventory.model;
 
 import jakarta.persistence.*;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import com.fasterxml.jackson.annotation.JsonIdentityInfo;
+import com.fasterxml.jackson.annotation.ObjectIdGenerators;
 import java.time.LocalDateTime;
 import java.util.List;
 
+// Import the top-level OrderStatus enum
+import Stock_Inventory.model.OrderStatus; // <--- IMPORTANT: Changed this import
+
 @Entity
+@Table(name = "customer_order")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(name = "customer_order")
+@JsonIdentityInfo(generator = ObjectIdGenerators.PropertyGenerator.class, property = "orderId")
 public class Order {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long orderId;
 
-    private Long customerId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "customer_id", nullable = false)
+    private Customer customer;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<OrderItem> orderItems;
 
+    @Column(nullable = false)
     private LocalDateTime orderDate;
 
     @Enumerated(EnumType.STRING)
-    private OrderStatus status;
+    @Column(nullable = false)
+    private OrderStatus status; // <--- Now references the top-level enum
 
     @Transient
     private Double totalAmount;
 
-    public enum OrderStatus {
-        PENDING, SHIPPED, DELIVERED, CANCELLED
+    // The nested enum is removed from here!
+
+    @PrePersist
+    protected void onCreate() {
+        this.orderDate = LocalDateTime.now();
+        if (this.status == null) {
+            this.status = OrderStatus.PENDING;
+        }
+    }
+
+    public Double calculateTotalAmount() {
+        return this.orderItems.stream()
+                .mapToDouble(item -> item.getQuantity() * item.getPriceAtOrder())
+                .sum();
     }
 }
-
-
-// Update -2
-//package Stock_Inventory.model;
-//
-//import jakarta.persistence.*;
-//import lombok.*;
-//import java.time.LocalDateTime;
-//import java.util.List;
-//
-//@Entity
-//@Getter
-//@Setter
-//@NoArgsConstructor
-//@AllArgsConstructor
-//@Table(name = "customer_order") // Renamed to avoid 'order' keyword conflict in some databases
-//public class Order {
-//    @Id
-//    @GeneratedValue(strategy = GenerationType.IDENTITY)
-//    private Long orderId;
-//
-//    private Long customerId; // As per LLD
-//
-//    // Represents the "ProductID" and "Quantity" from the LLD for multiple products
-//    // This establishes the one-to-many relationship from Order to OrderItem
-//    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
-//    private List<OrderItem> orderItems;
-//
-//    private LocalDateTime orderDate;
-//
-//    @Enumerated(EnumType.STRING)
-//    private OrderStatus status; // Enum for status (PENDING, SHIPPED, DELIVERED, CANCELLED)
-//
-//    // Derived field, not directly stored in DB, calculated for convenience in API response
-//    @Transient
-//    private Double totalAmount;
-//
-//    public enum OrderStatus {
-//        PENDING, SHIPPED, DELIVERED, CANCELLED
-//    }
-//}
